@@ -4,7 +4,8 @@ const Session = require('../models/session.model');
 const authenticateAdmin = require("../middleware/auth.middleware");
 
 router.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+    const origin = req.headers.origin || req.headers.referer || 'Unknown Origin';
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - Origin: ${origin}`);
     next(); // Passe à la route suivante
 });
 
