@@ -1,6 +1,7 @@
 // src/models/session.model.js
 const mongoose = require('mongoose');
 const https = require('https');
+const { encrypt, decrypt } = require('../middleware/auth.middleware');
 
 const sessionSchema = new mongoose.Schema({
     athleteId: {
@@ -11,12 +12,12 @@ const sessionSchema = new mongoose.Schema({
     firstname: String,
     lastname: String,
     accessToken: {
-        type: String,
-        required: true
+        iv: { type: String, required: true },
+        encryptedData: { type: String, required: true }
     },
     refreshToken: {
-        type: String,
-        required: true
+        iv: { type: String, required: true },
+        encryptedData: { type: String, required: true }
     },
     expiresAt: {
         type: Number,
@@ -31,44 +32,70 @@ const sessionSchema = new mongoose.Schema({
         default: Date.now
     }
 }, {
-    timestamps: true
+    timestamps: true,
+    toJSON: {
+        transform: function(doc, ret) {
+            // Ne pas inclure les tokens chiffrés dans la sortie JSON
+            delete ret.accessToken;
+            delete ret.refreshToken;
+            return ret;
+        }
+    }
 });
 
-// Index TTL pour supprimer les sessions après 24h d'inactivité
-sessionSchema.index({ lastActivity: 1 }, { expireAfterSeconds: 24 * 60 * 60 });
+// Méthode pour décrypter l'access token
+sessionSchema.methods.getDecryptedAccessToken = function() {
+    return decrypt(this.accessToken.encryptedData, this.accessToken.iv);
+};
 
-// Index TTL pour supprimer les sessions après 1 mois depuis la création
-sessionSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+// Méthode pour décrypter le refresh token
+sessionSchema.methods.getDecryptedRefreshToken = function() {
+    return decrypt(this.refreshToken.encryptedData, this.refreshToken.iv);
+};
+
+// Index TTL : supprime et déautorise les sessions après 30 jours d'inactivité
+sessionSchema.index({ lastActivity: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 // Middleware pre-remove pour déautoriser auprès de Strava avant suppression
 sessionSchema.pre('deleteOne', { document: true }, async function(next) {
     try {
-        const options = {
-            hostname: 'www.strava.com',
-            path: '/oauth/deauthorize',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.accessToken}`
-            }
-        };
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
-        await new Promise((resolve, reject) => {
-            const req = https.request(options, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    if (res.statusCode === 200) {
-                        resolve(data);
-                    } else {
-                        reject(new Error(`Strava returned status ${res.statusCode}`));
-                    }
+        // Ne déautoriser que si la dernière activité date de plus de 30 jours
+        if (this.lastActivity < oneMonthAgo) {
+            const accessToken = this.getDecryptedAccessToken();
+            const options = {
+                hostname: 'www.strava.com',
+                path: '/oauth/deauthorize',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            };
+
+            await new Promise((resolve, reject) => {
+                const req = https.request(options, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        if (res.statusCode === 200) {
+                            resolve(data);
+                        } else {
+                            reject(new Error(`Strava returned status ${res.statusCode}`));
+                        }
+                    });
                 });
+
+                req.on('error', reject);
+                req.end();
             });
 
-            req.on('error', reject);
-            req.end();
-        });
+            console.log(`Athlète ${this.athleteId} déautorisé après 30 jours d'inactivité`);
+        } else {
+            console.log(`Session de l'athlète ${this.athleteId} supprimée sans déautorisation`);
+        }
 
         next();
     } catch (error) {
@@ -76,9 +103,6 @@ sessionSchema.pre('deleteOne', { document: true }, async function(next) {
         next();
     }
 });
-
-// Créer le modèle
-const Session = mongoose.model('Session', sessionSchema);
 
 // Vérification périodique des sessions à expirer
 const checkExpiredSessions = async () => {
@@ -97,6 +121,8 @@ const checkExpiredSessions = async () => {
         console.error('Erreur lors de la vérification des sessions expirées:', error);
     }
 };
+
+const Session = mongoose.model('Session', sessionSchema);
 
 // Exécuter la vérification toutes les 24 heures
 setInterval(checkExpiredSessions, 24 * 60 * 60 * 1000);

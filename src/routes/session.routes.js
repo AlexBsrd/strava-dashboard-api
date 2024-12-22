@@ -1,37 +1,61 @@
 const express = require('express');
 const router = express.Router();
 const Session = require('../models/session.model');
-const authenticateAdmin = require("../middleware/auth.middleware");
+const { authenticate, authenticateAdmin, encrypt } = require('../middleware/auth.middleware');
 
+// Logger middleware
 router.use((req, res, next) => {
-    const origin = req.headers.origin || req.headers.referer || 'Unknown Origin';
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - Origin: ${origin}`);
-    next(); // Passe à la route suivante
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+    next();
 });
+
+// Authentification requise pour toutes les routes
+router.use(authenticate);
 
 // Créer ou mettre à jour une session
 router.post('/', async (req, res) => {
     try {
         const { athleteId, firstname, lastname, accessToken, refreshToken, expiresAt } = req.body;
 
-        await Session.findOneAndUpdate(
+        // Vérifier que les tokens sont présents
+        if (!accessToken || !refreshToken) {
+            return res.status(400).json({ error: 'Tokens manquants' });
+        }
+
+        // Chiffrer les tokens
+        const encryptedAccessToken = encrypt(accessToken);
+        const encryptedRefreshToken = encrypt(refreshToken);
+
+        const session = await Session.findOneAndUpdate(
             { athleteId },
             {
                 athleteId,
                 firstname,
                 lastname,
-                accessToken,
-                refreshToken,
+                accessToken: encryptedAccessToken,
+                refreshToken: encryptedRefreshToken,
                 expiresAt,
                 lastActivity: new Date()
             },
             { upsert: true, new: true }
         );
 
-        res.status(201).send();
+        // Log de confirmation après sauvegarde
+        console.log('[Session Creation] Session sauvegardée:', {
+            athleteId: session.athleteId,
+            firstname: session.firstname,
+            lastname: session.lastname,
+            expiresAt: session.expiresAt,
+            lastActivity: session.lastActivity
+        });
+
+        res.status(201).json({ success: true });
     } catch (error) {
         console.error('Error creating/updating session:', error);
-        res.status(500).send(error.message);
+        res.status(500).json({
+            error: 'Erreur lors de la création/mise à jour de la session',
+            details: error.message
+        });
     }
 });
 
@@ -73,11 +97,10 @@ router.post('/:athleteId/activity', async (req, res) => {
     }
 });
 
-// Lister toutes les sessions (pour l'admin)
+// Lister toutes les sessions (admin seulement)
 router.get('/', authenticateAdmin, async (req, res) => {
     try {
         const sessions = await Session.find()
-            .select('-accessToken -refreshToken')
             .sort({ lastActivity: -1 });
 
         res.json(sessions);
@@ -90,15 +113,17 @@ router.get('/', authenticateAdmin, async (req, res) => {
 // Supprimer une session
 router.delete('/:athleteId', async (req, res) => {
     try {
-        // Récupérer d'abord la session
+        // Vérifier que l'utilisateur est admin ou que c'est sa propre session
+        if (req.userRole !== 'admin' && req.body.athleteId !== req.params.athleteId) {
+            return res.status(403).send('Non autorisé à supprimer cette session');
+        }
+
         const session = await Session.findOne({ athleteId: req.params.athleteId });
         if (!session) {
             return res.status(404).send('Session not found');
         }
 
-        // Appeler la méthode remove() qui déclenchera le middleware
         await session.deleteOne();
-
         res.status(200).send();
     } catch (error) {
         console.error('Error deleting session:', error);
