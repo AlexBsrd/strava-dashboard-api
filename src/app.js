@@ -11,7 +11,6 @@ const corsOptions = {
     origin: ['*'], // Ajoutez ici les origines autorisées
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
     maxAge: 600 // Cache la réponse preflight pendant 10 minutes
 };
 app.options('*', cors(corsOptions)); // Active le preflight pour toutes les routes
