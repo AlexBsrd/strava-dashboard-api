@@ -7,7 +7,7 @@ const sessionRoutes = require('./routes/session.routes');
 const app = express();
 
 const corsOptions = {
-    origin: ['http://localhost:4200', 'https://alexbsrd.github.io/strava-dashboard'],
+    origin: ['http://localhost:4200', 'https://alexbsrd.github.io'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
     credentials: true,
