@@ -3,6 +3,11 @@ const router = express.Router();
 const Session = require('../models/session.model');
 const authenticateAdmin = require("../middleware/auth.middleware");
 
+router.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+    next(); // Passe à la route suivante
+});
+
 // Créer ou mettre à jour une session
 router.post('/', async (req, res) => {
     try {
