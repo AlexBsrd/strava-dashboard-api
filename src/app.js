@@ -6,15 +6,16 @@ const sessionRoutes = require('./routes/session.routes');
 
 const app = express();
 
-// Middleware
 const corsOptions = {
-    origin: ['*'], // Ajoutez ici les origines autorisées
+    origin: ['http://localhost:4200', 'https://alexbsrd.github.io/strava-dashboard'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    maxAge: 600 // Cache la réponse preflight pendant 10 minutes
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+    credentials: true,
+    maxAge: 600, // Durée du cache des requêtes preflight
 };
-app.options('*', cors(corsOptions)); // Active le preflight pour toutes les routes
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 
 // Routes
