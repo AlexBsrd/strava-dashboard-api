@@ -139,8 +139,20 @@ const checkInactiveSessions = async () => {
 
         const inactiveSessions = await Session.find({
             lastActivity: { $lt: oneMonthAgo },
-            isActive: true,
-            deauthorizedAt: null
+            $or: [
+                {
+                    $and: [
+                        { isActive: true },
+                        { deauthorizedAt: null }
+                    ]
+                },
+                {
+                    $and: [
+                        { isActive: { $exists: false } },
+                        { deauthorizedAt: { $exists: false } }
+                    ]
+                }
+            ]
         });
 
         console.log(`[CHECK] ${inactiveSessions.length} session(s) inactive(s) trouvée(s)`);
@@ -149,7 +161,6 @@ const checkInactiveSessions = async () => {
             try {
                 await session.deauthorizeFromStrava();
 
-                // Mettre à jour le statut plutôt que de supprimer
                 session.isActive = false;
                 session.deauthorizedAt = new Date();
                 await session.save();
