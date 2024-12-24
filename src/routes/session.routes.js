@@ -3,12 +3,6 @@ const router = express.Router();
 const Session = require('../models/session.model');
 const { authenticate, authenticateAdmin, encrypt } = require('../middleware/auth.middleware');
 
-// Logger middleware
-router.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-    next();
-});
-
 // Authentification requise pour toutes les routes
 router.use(authenticate);
 
