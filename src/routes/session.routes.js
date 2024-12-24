@@ -29,7 +29,9 @@ router.post('/', async (req, res) => {
                 accessToken: encryptedAccessToken,
                 refreshToken: encryptedRefreshToken,
                 expiresAt,
-                lastActivity: new Date()
+                lastActivity: new Date(),
+                isActive: true,
+                deauthorizedAt: null
             },
             { upsert: true, new: true }
         );
