@@ -58,12 +58,80 @@ sessionSchema.methods.getDecryptedRefreshToken = function() {
     return decrypt(this.refreshToken.encryptedData, this.refreshToken.iv);
 };
 
+// Méthode pour rafraîchir le token Strava
+sessionSchema.methods.refreshStravaToken = async function() {
+    console.log(`[REFRESH] Tentative de rafraîchissement du token pour l'athlète ${this.athleteId}`);
+
+    return new Promise((resolve, reject) => {
+        const refreshToken = this.getDecryptedRefreshToken();
+        const data = JSON.stringify({
+            client_id: process.env.STRAVA_CLIENT_ID,
+            client_secret: process.env.STRAVA_CLIENT_SECRET,
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken
+        });
+
+        const options = {
+            hostname: 'www.strava.com',
+            path: '/oauth/token',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': data.length
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let responseData = '';
+
+            res.on('data', chunk => responseData += chunk);
+
+            res.on('end', async () => {
+                if (res.statusCode === 200) {
+                    try {
+                        const tokenData = JSON.parse(responseData);
+
+                        // Encrypt and update tokens
+                        const encryptedAccess = encrypt(tokenData.access_token);
+                        const encryptedRefresh = encrypt(tokenData.refresh_token);
+
+                        this.accessToken = encryptedAccess;
+                        this.refreshToken = encryptedRefresh;
+                        this.expiresAt = tokenData.expires_at;
+
+                        await this.save();
+
+                        console.log(`[REFRESH] Token rafraîchi avec succès pour l'athlète ${this.athleteId}`);
+                        resolve(tokenData.access_token);
+                    } catch (error) {
+                        console.error(`[REFRESH ERROR] Erreur lors du traitement de la réponse pour l'athlète ${this.athleteId}:`, error);
+                        reject(error);
+                    }
+                } else {
+                    console.error(`[REFRESH ERROR] Échec du rafraîchissement pour l'athlète ${this.athleteId}. Status: ${res.statusCode}`);
+                    reject(new Error(`Strava returned status ${res.statusCode}`));
+                }
+            });
+        });
+
+        req.on('error', (error) => {
+            console.error(`[REFRESH ERROR] Erreur réseau pour l'athlète ${this.athleteId}:`, error);
+            reject(error);
+        });
+
+        req.write(data);
+        req.end();
+    });
+};
+
 // Méthode pour la déautorisation Strava
 sessionSchema.methods.deauthorizeFromStrava = async function() {
-    console.log(`[DEAUTH] Début de la déautorisation pour l\'athlète ${this.athleteId} (${this.firstname} ${this.lastname})`);
+    console.log(`[DEAUTH] Début de la déautorisation pour l'athlète ${this.athleteId} (${this.firstname} ${this.lastname})`);
 
     try {
-        const accessToken = this.getDecryptedAccessToken();
+        // Rafraîchir le token avant la déautorisation
+        const accessToken = await this.refreshStravaToken();
+
         const options = {
             hostname: 'www.strava.com',
             path: '/oauth/deauthorize',
@@ -83,21 +151,21 @@ sessionSchema.methods.deauthorizeFromStrava = async function() {
                         console.log(`[DEAUTH SUCCESS] Athlète ${this.athleteId} déautorisé avec succès de Strava`);
                         resolve(data);
                     } else {
-                        console.error(`[DEAUTH ERROR] Échec de la déautorisation pour l\'athlète ${this.athleteId}. Status: ${res.statusCode}`);
+                        console.error(`[DEAUTH ERROR] Échec de la déautorisation pour l'athlète ${this.athleteId}. Status: ${res.statusCode}`);
                         reject(new Error(`Strava returned status ${res.statusCode}`));
                     }
                 });
             });
 
             req.on('error', (error) => {
-                console.error(`[DEAUTH ERROR] Erreur lors de la déautorisation de l\'athlète ${this.athleteId}:`, error);
+                console.error(`[DEAUTH ERROR] Erreur lors de la déautorisation de l'athlète ${this.athleteId}:`, error);
                 reject(error);
             });
 
             req.end();
         });
     } catch (error) {
-        console.error(`[DEAUTH ERROR] Erreur critique lors de la déautorisation de l\'athlète ${this.athleteId}:`, error);
+        console.error(`[DEAUTH ERROR] Erreur critique lors de la déautorisation de l'athlète ${this.athleteId}:`, error);
         throw error;
     }
 };
@@ -117,7 +185,7 @@ const cleanExistingIndexes = async () => {
             // Ne pas supprimer l'index _id
             if (indexName !== '_id_') {
                 if (indexInfo.expireAfterSeconds !== undefined) {
-                    console.log(`[INDEX] Suppression de l\'index TTL: ${indexName}`);
+                    console.log(`[INDEX] Suppression de l'index TTL: ${indexName}`);
                     await collection.dropIndex(indexName);
                 } else {
                     console.log(`[INDEX] Index conservé: ${indexName} (non-TTL)`);
