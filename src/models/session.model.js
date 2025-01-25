@@ -63,64 +63,85 @@ sessionSchema.methods.refreshStravaToken = async function() {
     console.log(`[REFRESH] Tentative de rafraîchissement du token pour l'athlète ${this.athleteId}`);
 
     return new Promise((resolve, reject) => {
-        const refreshToken = this.getDecryptedRefreshToken();
-        const data = JSON.stringify({
-            client_id: process.env.STRAVA_CLIENT_ID,
-            client_secret: process.env.STRAVA_CLIENT_SECRET,
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken
-        });
+        try {
+            const refreshToken = this.getDecryptedRefreshToken();
+            console.log(`[REFRESH DEBUG] Client ID: ${process.env.STRAVA_CLIENT_ID}`);
+            console.log(`[REFRESH DEBUG] Refresh Token disponible: ${!!refreshToken}`);
 
-        const options = {
-            hostname: 'www.strava.com',
-            path: '/oauth/token',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': data.length
-            }
-        };
+            const requestBody = {
+                client_id: process.env.STRAVA_CLIENT_ID,
+                client_secret: process.env.STRAVA_CLIENT_SECRET,
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken
+            };
 
-        const req = https.request(options, (res) => {
-            let responseData = '';
+            console.log('[REFRESH DEBUG] Données de la requête:', JSON.stringify(requestBody, null, 2));
 
-            res.on('data', chunk => responseData += chunk);
+            const data = JSON.stringify(requestBody);
 
-            res.on('end', async () => {
-                if (res.statusCode === 200) {
-                    try {
-                        const tokenData = JSON.parse(responseData);
-
-                        // Encrypt and update tokens
-                        const encryptedAccess = encrypt(tokenData.access_token);
-                        const encryptedRefresh = encrypt(tokenData.refresh_token);
-
-                        this.accessToken = encryptedAccess;
-                        this.refreshToken = encryptedRefresh;
-                        this.expiresAt = tokenData.expires_at;
-
-                        await this.save();
-
-                        console.log(`[REFRESH] Token rafraîchi avec succès pour l'athlète ${this.athleteId}`);
-                        resolve(tokenData.access_token);
-                    } catch (error) {
-                        console.error(`[REFRESH ERROR] Erreur lors du traitement de la réponse pour l'athlète ${this.athleteId}:`, error);
-                        reject(error);
-                    }
-                } else {
-                    console.error(`[REFRESH ERROR] Échec du rafraîchissement pour l'athlète ${this.athleteId}. Status: ${res.statusCode}`);
-                    reject(new Error(`Strava returned status ${res.statusCode}`));
+            const options = {
+                hostname: 'www.strava.com',
+                path: '/oauth/token',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(data)
                 }
+            };
+
+            const req = https.request(options, (res) => {
+                let responseData = '';
+
+                res.on('data', chunk => responseData += chunk);
+
+                res.on('end', async () => {
+                    console.log(`[REFRESH DEBUG] Réponse complète reçue: ${responseData}`);
+                    if (res.statusCode === 200) {
+                        try {
+                            const tokenData = JSON.parse(responseData);
+
+                            if (!tokenData.access_token || !tokenData.refresh_token) {
+                                console.error(`[REFRESH ERROR] Données de token invalides reçues:`, tokenData);
+                                reject(new Error('Invalid token data received from Strava'));
+                                return;
+                            }
+
+                            // Encrypt and update tokens
+                            const encryptedAccess = encrypt(tokenData.access_token);
+                            const encryptedRefresh = encrypt(tokenData.refresh_token);
+
+                            this.accessToken = encryptedAccess;
+                            this.refreshToken = encryptedRefresh;
+                            this.expiresAt = tokenData.expires_at;
+
+                            await this.save();
+
+                            console.log(`[REFRESH] Token rafraîchi avec succès pour l'athlète ${this.athleteId}`);
+                            resolve(tokenData.access_token);
+                        } catch (error) {
+                            console.error(`[REFRESH ERROR] Erreur lors du traitement de la réponse pour l'athlète ${this.athleteId}:`, error);
+                            console.error(`[REFRESH ERROR] Réponse reçue:`, responseData);
+                            reject(error);
+                        }
+                    } else {
+                        console.error(`[REFRESH ERROR] Échec du rafraîchissement pour l'athlète ${this.athleteId}. Status: ${res.statusCode}`);
+                        console.error(`[REFRESH ERROR] Réponse d'erreur:`, responseData);
+                        reject(new Error(`Strava returned status ${res.statusCode}: ${responseData}`));
+                    }
+                });
             });
-        });
 
-        req.on('error', (error) => {
-            console.error(`[REFRESH ERROR] Erreur réseau pour l'athlète ${this.athleteId}:`, error);
+            req.on('error', (error) => {
+                console.error(`[REFRESH ERROR] Erreur réseau pour l'athlète ${this.athleteId}:`, error);
+                reject(error);
+            });
+
+            req.write(data);
+            req.end();
+        } catch (error) {
+            console.error(`[REFRESH ERROR] Erreur lors de la préparation de la requête:`, error);
             reject(error);
-        });
-
-        req.write(data);
-        req.end();
+        }
     });
 };
 
@@ -134,10 +155,9 @@ sessionSchema.methods.deauthorizeFromStrava = async function() {
 
         const options = {
             hostname: 'www.strava.com',
-            path: '/oauth/deauthorize',
+            path: '/api/v3/oauth/deauthorize',
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${accessToken}`
             }
         };
@@ -152,7 +172,8 @@ sessionSchema.methods.deauthorizeFromStrava = async function() {
                         resolve(data);
                     } else {
                         console.error(`[DEAUTH ERROR] Échec de la déautorisation pour l'athlète ${this.athleteId}. Status: ${res.statusCode}`);
-                        reject(new Error(`Strava returned status ${res.statusCode}`));
+                        console.error(`[DEAUTH ERROR] Réponse complète:`, data);
+                        reject(new Error(`Strava returned status ${res.statusCode}: ${data}`));
                     }
                 });
             });

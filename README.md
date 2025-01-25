@@ -10,6 +10,7 @@ Cette API sert de backend pour l'application Strava Dashboard. Elle gère les se
 - Interface d'administration sécurisée pour visualiser les connexions
 - Chiffrement des tokens d'authentification
 - Double niveau d'authentification (client et admin)
+- Rafraîchissement automatique des tokens Strava expirés
 
 ## Prérequis
 
@@ -17,6 +18,7 @@ Cette API sert de backend pour l'application Strava Dashboard. Elle gère les se
 - MongoDB
 - Un compte MongoDB Atlas (ou une instance MongoDB locale)
 - OpenSSL pour la génération de clés
+- Compte développeur Strava avec client ID et secret
 
 ## Installation
 
@@ -50,6 +52,8 @@ PORT=3000
 ENCRYPTION_KEY=votre_clé_de_chiffrement
 ADMIN_API_KEY=votre_clé_admin
 CLIENT_API_KEY=votre_clé_client
+STRAVA_CLIENT_ID=votre_client_id_strava
+STRAVA_CLIENT_SECRET=votre_client_secret_strava
 ```
 
 Où :
@@ -58,6 +62,8 @@ Où :
 - `ENCRYPTION_KEY` : Clé de 32 bytes pour le chiffrement des tokens (générée à l'étape 3)
 - `ADMIN_API_KEY` : Clé pour accéder aux routes d'administration (générée à l'étape 3)
 - `CLIENT_API_KEY` : Clé pour l'accès client standard (générée à l'étape 3)
+- `STRAVA_CLIENT_ID` : ID client de votre application Strava
+- `STRAVA_CLIENT_SECRET` : Secret client de votre application Strava
 
 ## Démarrage
 
@@ -95,12 +101,14 @@ Toutes les routes nécessitent une clé API dans le header `x-api-key`. Il exist
 - Vérification de la clé API sur toutes les routes
 - Session automatiquement déautorisée après 30 jours d'inactivité
 - Tokens d'accès Strava chiffrés en base de données
+- Rafraîchissement automatique des tokens Strava expirés
 
 ### Gestion des Sessions
 - Chaque activité de l'utilisateur met à jour `lastActivity`
 - Après 30 jours d'inactivité :
-    1. La session est supprimée automatiquement
-    2. L'athlète est déautorisé de l'application Strava
+  1. Le token Strava est rafraîchi si nécessaire
+  2. L'athlète est déautorisé via l'API Strava (`/api/v3/oauth/deauthorize`)
+  3. La session est marquée comme inactive
 - Les sessions supprimées manuellement ne déautorisent pas l'athlète si celui-ci était actif
 
 ### Bonnes Pratiques
@@ -128,7 +136,9 @@ Toutes les routes nécessitent une clé API dans le header `x-api-key`. Il exist
     encryptedData: String
   },
   expiresAt: Number,
-  lastActivity: Date
+  lastActivity: Date,
+  isActive: Boolean,
+  deauthorizedAt: Date
 }
 ```
 
@@ -189,6 +199,7 @@ Pour toute question ou problème :
 - API key manquante : Header x-api-key non fourni
 - API key invalide : Mauvaise clé ou niveau d'accès incorrect
 - Erreur de validation : Format de session incorrect
+- Échec de déautorisation : Token Strava expiré ou invalide
 
 ## Licence
 
