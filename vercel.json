@@ -4,5 +4,11 @@
       "source": "/(.*)",
       "destination": "/api/index.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/check-sessions",
+      "schedule": "0 3 * * *"
+    }
   ]
 }

@@ -65,17 +65,12 @@ sessionSchema.methods.refreshStravaToken = async function() {
     return new Promise((resolve, reject) => {
         try {
             const refreshToken = this.getDecryptedRefreshToken();
-            console.log(`[REFRESH DEBUG] Client ID: ${process.env.STRAVA_CLIENT_ID}`);
-            console.log(`[REFRESH DEBUG] Refresh Token disponible: ${!!refreshToken}`);
-
             const requestBody = {
                 client_id: process.env.STRAVA_CLIENT_ID,
                 client_secret: process.env.STRAVA_CLIENT_SECRET,
                 grant_type: 'refresh_token',
                 refresh_token: refreshToken
             };
-
-            console.log('[REFRESH DEBUG] Données de la requête:', JSON.stringify(requestBody, null, 2));
 
             const data = JSON.stringify(requestBody);
 
@@ -95,13 +90,12 @@ sessionSchema.methods.refreshStravaToken = async function() {
                 res.on('data', chunk => responseData += chunk);
 
                 res.on('end', async () => {
-                    console.log(`[REFRESH DEBUG] Réponse complète reçue: ${responseData}`);
                     if (res.statusCode === 200) {
                         try {
                             const tokenData = JSON.parse(responseData);
 
                             if (!tokenData.access_token || !tokenData.refresh_token) {
-                                console.error(`[REFRESH ERROR] Données de token invalides reçues:`, tokenData);
+                                console.error(`[REFRESH ERROR] Données de token invalides reçues pour l'athlète ${this.athleteId}`);
                                 reject(new Error('Invalid token data received from Strava'));
                                 return;
                             }
@@ -120,7 +114,6 @@ sessionSchema.methods.refreshStravaToken = async function() {
                             resolve(tokenData.access_token);
                         } catch (error) {
                             console.error(`[REFRESH ERROR] Erreur lors du traitement de la réponse pour l'athlète ${this.athleteId}:`, error);
-                            console.error(`[REFRESH ERROR] Réponse reçue:`, responseData);
                             reject(error);
                         }
                     } else {
@@ -186,38 +179,12 @@ sessionSchema.methods.deauthorizeFromStrava = async function() {
             req.end();
         });
     } catch (error) {
-        console.error(`[DEAUTH ERROR] Erreur critique lors de la déautorisation de l'athlète ${this.athleteId}:`, error);
+        console.error(`[DEAUTH ERROR] Erreur lors de la déautorisation de l'athlète ${this.athleteId}:`, error.message);
         throw error;
     }
 };
 
 const Session = mongoose.model('Session', sessionSchema);
-
-// Fonction pour supprimer les index existants
-const cleanExistingIndexes = async () => {
-    try {
-        console.log('[INDEX] Début de la vérification des index existants');
-        const collection = Session.collection;
-        const indexes = await collection.getIndexes();
-
-        console.log('[INDEX] Index trouvés:', Object.keys(indexes));
-
-        for (const [indexName, indexInfo] of Object.entries(indexes)) {
-            // Ne pas supprimer l'index _id
-            if (indexName !== '_id_') {
-                if (indexInfo.expireAfterSeconds !== undefined) {
-                    console.log(`[INDEX] Suppression de l'index TTL: ${indexName}`);
-                    await collection.dropIndex(indexName);
-                } else {
-                    console.log(`[INDEX] Index conservé: ${indexName} (non-TTL)`);
-                }
-            }
-        }
-        console.log('[INDEX] Nettoyage des index terminé');
-    } catch (error) {
-        console.error('[INDEX ERROR] Erreur lors du nettoyage des index:', error);
-    }
-};
 
 // Fonction pour vérifier les sessions inactives
 const checkInactiveSessions = async () => {
@@ -256,7 +223,15 @@ const checkInactiveSessions = async () => {
 
                 console.log(`[UPDATE] Session ${session.athleteId} marquée comme inactive et déautorisée`);
             } catch (error) {
-                console.error(`[ERROR] Erreur lors du traitement de la session ${session.athleteId}:`, error);
+                // Refresh token révoqué : l'athlète a déjà retiré l'accès côté Strava
+                if (/"code":"invalid"/.test(error.message)) {
+                    session.isActive = false;
+                    session.deauthorizedAt = new Date();
+                    await session.save();
+                    console.log(`[UPDATE] Session ${session.athleteId} marquée inactive (token déjà révoqué côté Strava)`);
+                } else {
+                    console.error(`[ERROR] Erreur lors du traitement de la session ${session.athleteId}:`, error.message);
+                }
             }
         }
     } catch (error) {
@@ -264,28 +239,5 @@ const checkInactiveSessions = async () => {
     }
 };
 
-// Fonction d'initialisation
-const initialize = async () => {
-    console.log('[INIT] Démarrage de l\'initialisation du modèle Session');
-
-    // Nettoyer les index existants
-    await cleanExistingIndexes();
-
-    // Démarrer la vérification initiale des sessions
-    console.log('[INIT] Démarrage de la vérification initiale des sessions');
-    await checkInactiveSessions();
-};
-
-// Planifier la vérification toutes les 24 heures
-const CHECK_INTERVAL = 24 * 60 * 60 * 1000;
-setInterval(() => {
-    console.log('[SCHEDULER] Démarrage de la vérification périodique des sessions');
-    checkInactiveSessions();
-}, CHECK_INTERVAL);
-
-// Exécuter l'initialisation au démarrage
-initialize().catch(error => {
-    console.error('[INIT ERROR] Erreur lors de l\'initialisation:', error);
-});
-
 module.exports = Session;
+module.exports.checkInactiveSessions = checkInactiveSessions;
