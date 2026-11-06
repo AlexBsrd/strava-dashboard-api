@@ -78,15 +78,16 @@ L'API sera accessible sur `http://localhost:3000` (ou le port spécifié dans vo
 Toutes les routes nécessitent une clé API dans le header `x-api-key`. Il existe deux niveaux d'accès :
 
 ### Routes Client (CLIENT_API_KEY)
-- `POST /api/sessions` : Créer ou mettre à jour une session
+La clé client est intégrée au frontend, donc publique : elle ne prouve pas l'identité de l'appelant.
+- `POST /api/auth/token` : Échanger le code OAuth Strava contre les tokens et créer la session (le `client_secret` reste côté serveur)
+- `POST /api/auth/refresh` : Rafraîchir le token d'accès (`refresh_token`, `athleteId`) ; la session n'est mise à jour que si le refresh token correspond à celui stocké
 - `GET /api/sessions/:athleteId/check` : Vérifier une session
 - `POST /api/sessions/:athleteId/activity` : Mettre à jour l'activité d'une session
-- `DELETE /api/sessions/:athleteId` : Supprimer sa propre session
 
 ### Routes Admin (ADMIN_API_KEY)
 - `GET /api/sessions` : Lister toutes les sessions
+- `DELETE /api/sessions/:athleteId` : Supprimer une session
 - Accès à toutes les routes client
-- Possibilité de supprimer n'importe quelle session
 
 ## Sécurité
 
