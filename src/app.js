@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/database');
 const sessionRoutes = require('./routes/session.routes');
+const authRoutes = require('./routes/auth.routes');
 const { checkInactiveSessions } = require('./models/session.model');
 
 const app = express();
@@ -21,6 +22,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/auth', authRoutes);
 
 // Base de données
 connectDB();

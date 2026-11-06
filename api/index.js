@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('../src/config/database');
 const sessionRoutes = require('../src/routes/session.routes');
+const authRoutes = require('../src/routes/auth.routes');
 const { checkInactiveSessions } = require('../src/models/session.model');
 
 const app = express();
@@ -21,6 +22,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/auth', authRoutes);
 
 // Vercel Cron (voir vercel.json) : Vercel envoie "Authorization: Bearer $CRON_SECRET"
 app.get('/api/cron/check-sessions', async (req, res) => {
